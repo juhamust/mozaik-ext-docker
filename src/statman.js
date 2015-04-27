@@ -1,4 +1,6 @@
 var _ = require('lodash');
+var fs = require('fs');
+var moment = require('moment');
 var util = require('util');
 var EventEmitter = require("events").EventEmitter;
 var Promise = require('bluebird');
@@ -24,10 +26,24 @@ class StatMan extends EventEmitter {
 
   constructor(name, opts) {
     super();
+    opts = opts || {};
 
     this.db;
     this.running = false;
     this.name = name;
+
+    // Create connection to Docker
+    if (!_.any([opts.socketPath, opts.host])) {
+      throw Error('Either socketPath or host address for Docker needed');
+    }
+
+    // Read auth files for secure connection
+    if (opts.certPath) {
+       opts.ca = fs.readFileSync(opts.certPath + '/ca.pem');
+       opts.cert = fs.readFileSync(opts.certPath + '/cert.pem');
+       opts.key = fs.readFileSync(opts.certPath + '/key.pem');
+    }
+
     this.docker = new Docker(opts);
 
     this.container = {
@@ -50,15 +66,14 @@ class StatMan extends EventEmitter {
     }
   }
 
-  start(opts, id) {
+  start(id, opts) {
     opts = opts || {};
 
     if (this.running) {
       return;
     }
 
-    this.logger.info('Starting StatMan');
-
+    this.logger.info('Starting StatMan', id);
     var container = this.docker.getContainer(id);
 
     container.stats((err, statStream) => {
@@ -73,7 +88,7 @@ class StatMan extends EventEmitter {
       statStream.on('data', (chunk) => {
         //console.log('STATS', chunk.toString());
         this.updateStat(chunk).then((doc) => {
-          this.emit('update', doc);
+          this.emit('data', doc);
         });
       });
 
@@ -112,11 +127,15 @@ class StatMan extends EventEmitter {
           return reject(err);
         }
 
+        //console.log('containers', containers)
+
         for (var containerInfo of containers) {
           console.log(containerInfo);
           containerList.push({
+            image: containerInfo.Image,
+            created: moment(containerInfo.Created * 1000).format(),
             id: containerInfo.Id,
-            names: containersInfo.Names
+            names: containerInfo.Names
           });
         }
 
@@ -194,7 +213,7 @@ class StatMan extends EventEmitter {
 StatMan.get = (name, opts) => {
   var statMan = statMen[name];
   if (!statMan) {
-    statMen[name] = new StatMan(name);
+    statMen[name] = new StatMan(name, opts);
     statMan = statMen[name];
   }
 

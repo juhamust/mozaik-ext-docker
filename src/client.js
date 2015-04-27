@@ -15,7 +15,11 @@ var client = function (mozaik) {
 
   return {
     container: function(params) {
-      var statMan = StatMan.get(params.name || 'container');
+      var statMan = StatMan.get(params.name || 'container', {
+        socketPath: config.get('socketPath'),
+        host: config.get('host'),
+        port: config.get('port')
+      });
     }
   }
 };

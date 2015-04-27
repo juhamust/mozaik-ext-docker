@@ -15,7 +15,7 @@ describe('StatMan', function() {
   beforeEach(function(done) {
     raw = fs.readFileSync(path.join(__dirname, 'container.json')).toString();
     container = JSON.parse(raw);
-    statMan = StatMan.get('test');
+    statMan = StatMan.get('test', { host: 'localhost' });
     // Clear db as start
     statMan.flush().then(done);
 
@@ -52,16 +52,10 @@ describe('StatMan', function() {
   var StatMan = proxyquire('../lib/statman', {
     dockerode: function() {
       return {
-        getContainer: function(){
+        getContainer: function(containerId){
           return {
             stats: function(cb) {
-              //console.log('get container stats', container); //
               cb(null, testStream);
-
-              //var stream = new TestStream();
-
-              //stream.emit('data', container);
-              // TODO: emit
             }
           }
         }
@@ -77,9 +71,9 @@ describe('StatMan', function() {
 
   it('sends event', function(done) {
     // Succeed or fail fast
-    statMan.start({ interval: 100 });
+    statMan.start('123');
 
-    statMan.once('update', function(entry) {
+    statMan.once('data', function(entry) {
       //console.log('UPDATE', entry);
       // See test data: container.json
       expect(entry.cpu.percent).toBe(10);
