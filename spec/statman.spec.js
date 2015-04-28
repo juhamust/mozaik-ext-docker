@@ -76,7 +76,7 @@ describe('StatMan', function() {
     statMan.once('data', function(entry) {
       //console.log('UPDATE', entry);
       // See test data: container.json
-      expect(entry.cpu.percent).toBe(10);
+      expect(entry.cpu.percent).toBe(0.006439854646018467);
       statMan.stop();
       done();
     });

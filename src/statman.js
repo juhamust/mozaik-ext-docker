@@ -74,33 +74,65 @@ class StatMan extends EventEmitter {
     }
 
     this.logger.info('Starting StatMan', id);
-    var container = this.docker.getContainer(id);
-
-    container.stats((err, statStream) => {
-      if (err) {
-        this.logger.error(err);
-        return Promise.reject(err);
-      }
-
-      this.statStream = statStream;
-
-      // Listen for data events
-      statStream.on('data', (chunk) => {
-        //console.log('STATS', chunk.toString());
-        this.updateStat(chunk).then((doc) => {
-          this.emit('data', doc);
-        });
-      });
-
+    this._start(id, opts)
+    .then(() => {
       this.running = true;
+    })
+    .catch((err) => {
+      this.logger.error(err);
+      this.running = false;
+    });
+  }
+
+  /**
+   * Start syncing the data from backend
+   * @param  {String} id   Container identifier
+   * @param  {Object} opts Optional options
+   * @return {Promise}     Resolved when started/failed
+   */
+  _start(id, opts) {
+    opts = opts || {};
+
+    return new Promise((resolve, reject) => {
+      var container = this.docker.getContainer(id);
+      container.stats((err, statStream) => {
+        if (err) {
+          this.logger.error(err);
+          return reject(err);
+        }
+
+        this.statStream = statStream;
+
+        // Listen for data events
+        statStream.on('data', (chunk) => {
+          //console.log('STATS', chunk.toString());
+          this.updateStat(chunk).then((doc) => {
+            this.emit('data', doc);
+          });
+        });
+
+        resolve();
+      });
     });
   }
 
   stop() {
-    if (this.statStream) {
-      this.statStream.destroy();
-    }
-    this.running = false;
+    this._stop()
+    .then(() => {
+      this.running = false;
+    })
+    .catch((err) => {
+      this.logger.warn(err);
+    });
+  }
+
+  _stop() {
+    return new Promise((resolve, reject) => {
+      if (this.statStream) {
+        this.statStream.destroy();
+      }
+      return resolve();
+    });
   }
 
   /**
@@ -172,8 +204,7 @@ class StatMan extends EventEmitter {
     var entry = {
       read: statInfo.read,
       cpu: {
-        // FIXME: statInfo.cpu_stats.percent
-        percent: 10
+        percent: this.calculatePercentCPU(statInfo),
       },
       network: {
         out: {
@@ -193,7 +224,6 @@ class StatMan extends EventEmitter {
     // TODO: Parse
     this.container.uptime = statInfo.status;
 
-
     // Write to database and resolve when ready
     return new Promise((resolve, reject) => {
       this.db.insert(_.clone(entry), (err, doc) => {
@@ -203,8 +233,22 @@ class StatMan extends EventEmitter {
         }
         return resolve(doc);
       });
-    })
+    });
 
+  }
+
+  calculatePercentCPU(statInfo, prev) {
+    prev = prev || {};
+    // Implementation adapted from:
+    // https://github.com/docker/docker/blob/b9be50b578f86e858113b9c334e1748e15b63263/api/client/stats.go#L168
+    var cpuPercent = 0.0;
+    var cpuDelta = statInfo.cpu_stats.cpu_usage.total_usage - (prev.cpu || 0);
+    var systemDelta = statInfo.cpu_stats.system_cpu_usage - (prev.system || 0);
+
+    if (systemDelta > 0.0 && cpuDelta > 0.0) {
+      cpuPercent = (cpuDelta / systemDelta) * (statInfo.cpu_stats.cpu_usage.percpu_usage).length * 100.0;
+    }
+    return cpuPercent;
   }
 
 };
